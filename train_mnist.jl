@@ -10,6 +10,7 @@ using Random
 using Printf
 using ProgressMeter
 using JLD2
+using CairoMakie
 
 # ==================== Utils ====================
 
@@ -18,8 +19,8 @@ function positional_embedding(time_steps::Int, dim::Int)
     emb = log(10000.0f0) / (half_dim - 1)
     emb = exp.(-(0:half_dim-1) .* emb)
     pos = 0:time_steps-1
-    emb = pos' .* emb'
-    emb = vcat(sin.(emb), cos.(emb))'
+    emb = pos .* emb'
+    emb = hcat(sin.(emb), cos.(emb))
     Float32.(emb)
 end
 
@@ -148,17 +149,19 @@ function (m::SimpleUNet)(x, t, c=nothing; guidance_scale::Float32=1.0f0)
     # c: (B,) class labels or nothing
     
     # Get time embedding
-    t_emb_raw = m.time_embed[t .+ 1, :]'
+    t_emb_raw = m.time_embed[t, :]'
     t_emb = m.time_mlp(t_emb_raw)
     
     # Classifier-free guidance
     if c !== nothing
         # Conditional prediction
-        c_emb = m.class_embed(c .+ 1)  # +1 because 0 is null class
+        # Map labels (0-9) to 2-11, null class (-1) to 1
+        c_mapped = c .+ 2
+        c_emb = m.class_embed(c_mapped)
         t_emb_cond = t_emb .+ c_emb'
         
-        # Unconditional prediction (null class = 0)
-        c_null = fill(0, size(c))
+        # Unconditional prediction (null class = 1)
+        c_null = fill(1, size(c))
         c_emb_null = m.class_embed(c_null)
         t_emb_uncond = t_emb .+ c_emb_null'
         
@@ -235,8 +238,7 @@ function p_losses(ddpm::DDPM, model, x0::AbstractArray, t::AbstractVector{Int}, 
     
     # Classifier-free guidance: randomly drop labels
     drop_mask = rand(Float32, batch_size) .< ddpm.p_uncond
-    c = copy(labels)
-    c[drop_mask] .= -1  # -1 will be mapped to null class
+    c = ifelse.(drop_mask, -1, labels)
     
     # Training with guidance_scale=1.0 (no guidance, just conditioning)
     noise_pred = model(x_t, t, c; guidance_scale=1.0f0)
@@ -420,7 +422,6 @@ function make_grid(images, rows, cols)
 end
 
 function save_image(grid, path)
-    using CairoMakie
     fig = Figure(size=(size(grid, 2), size(grid, 1)))
     ax = Axis(fig[1, 1], aspect=DataAspect())
     hidedecorations!(ax)
@@ -430,7 +431,6 @@ function save_image(grid, path)
 end
 
 function plot_loss(losses, path)
-    using CairoMakie
     fig = Figure(size=(800, 400))
     ax = Axis(fig[1, 1], xlabel="Epoch", ylabel="Loss", title="Training Loss")
     lines!(ax, losses, linewidth=2)
