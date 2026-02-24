@@ -8,6 +8,7 @@ using Statistics
 using Random
 using Printf
 using ProgressMeter
+using CairoMakie
 
 include("src/CFGDiffusion.jl")
 using .CFGDiffusion
@@ -164,7 +165,6 @@ function save_grid(images, nrows, ncols, path)
     end
     
     # Save using CairoMakie
-    using CairoMakie
     fig = Figure(size=(ncols*32, nrows*32))
     ax = Axis(fig[1, 1], aspect=DataAspect())
     hidedecorations!(ax)
